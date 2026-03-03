@@ -1,0 +1,37 @@
+{
+  "description": "Blocked plugins filtered from the PlugVault catalog. Entries can match by exact URL, owner name, or repo name pattern.",
+  "format": {
+    "url": "Full GitHub URL of the repo to block",
+    "reason": "Why it was blocked: spam | malware | low-quality | duplicate | test-repo | abandoned | policy-violation",
+    "blocked_at": "ISO date when the block was added"
+  },
+  "blocked": [
+    {
+      "url": "example/demo-plugin-test",
+      "reason": "test-repo",
+      "blocked_at": "2026-03-03"
+    },
+    {
+      "url": "example/my-first-claude-plugin",
+      "reason": "low-quality",
+      "blocked_at": "2026-03-03"
+    }
+  ],
+  "blocked_patterns": [
+    {
+      "pattern": "test-plugin",
+      "match_type": "repo_name_contains",
+      "reason": "Generic test repos with no real value"
+    },
+    {
+      "pattern": "hello-world",
+      "match_type": "repo_name_contains",
+      "reason": "Placeholder repos"
+    },
+    {
+      "pattern": "demo-only",
+      "match_type": "repo_name_contains",
+      "reason": "Demo repos not intended for production"
+    }
+  ]
+}

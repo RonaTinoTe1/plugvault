@@ -1,0 +1,60 @@
+{
+  "categories": {
+    "business": {
+      "name": "Business",
+      "description": "Sales, marketing, finance, and business operations",
+      "keywords": ["sales", "marketing", "crm", "finance", "invoice", "business", "startup", "founder", "revenue", "analytics", "growth", "leads", "outreach", "email", "newsletter", "pricing", "monetization", "stripe", "payment", "accounting"]
+    },
+    "engineering": {
+      "name": "Engineering",
+      "description": "Development tools, CI/CD, and code quality",
+      "keywords": ["git", "ci", "cd", "deploy", "lint", "code", "dev", "api", "rest", "graphql", "debug", "refactor", "build", "compile", "monorepo", "microservice", "sdk", "library", "package", "npm", "pip"]
+    },
+    "automation": {
+      "name": "Automation",
+      "description": "Workflow automation and task orchestration",
+      "keywords": ["automation", "workflow", "pipeline", "schedule", "cron", "bot", "agent", "autonomous", "task", "job", "trigger", "scraper", "crawler", "webhook", "integration", "zapier", "n8n"]
+    },
+    "data": {
+      "name": "Data",
+      "description": "Data analysis, visualization, and databases",
+      "keywords": ["data", "analytics", "visualization", "dashboard", "sql", "database", "csv", "excel", "chart", "report", "metrics", "statistics", "etl", "pandas", "postgres", "mongodb", "redis", "bigquery", "warehouse"]
+    },
+    "design": {
+      "name": "Design",
+      "description": "UI/UX, design systems, and creative tools",
+      "keywords": ["design", "ui", "ux", "figma", "css", "style", "theme", "component", "accessibility", "responsive", "frontend", "visual", "tailwind", "animation", "mockup", "wireframe", "prototype"]
+    },
+    "productivity": {
+      "name": "Productivity",
+      "description": "Task management, notes, and personal organization",
+      "keywords": ["productivity", "task", "todo", "notes", "notion", "calendar", "reminder", "organize", "planning", "project", "management", "markdown", "documentation", "wiki", "knowledge-base"]
+    },
+    "security": {
+      "name": "Security",
+      "description": "Security scanning, authentication, and compliance",
+      "keywords": ["security", "auth", "authentication", "authorization", "jwt", "oauth", "vulnerability", "pentest", "audit", "scan", "encryption", "compliance", "gdpr", "secret", "sast", "dast", "owasp", "firewall", "rbac"]
+    },
+    "testing": {
+      "name": "Testing",
+      "description": "Testing frameworks, coverage, and quality assurance",
+      "keywords": ["test", "testing", "tdd", "jest", "pytest", "mocha", "coverage", "e2e", "unit", "integration", "cypress", "playwright", "selenium", "qa", "assertion", "mock", "fixture", "snapshot"]
+    },
+    "devops": {
+      "name": "DevOps",
+      "description": "Infrastructure, containers, and deployment orchestration",
+      "keywords": ["docker", "kubernetes", "k8s", "terraform", "ansible", "devops", "infrastructure", "helm", "deployment", "aws", "gcp", "azure", "cloud", "nginx", "monitoring", "grafana", "prometheus", "ci-cd", "github-actions"]
+    },
+    "ai": {
+      "name": "AI & ML",
+      "description": "AI integrations, LLM tools, and machine learning",
+      "keywords": ["ai", "llm", "gpt", "openai", "anthropic", "langchain", "vector", "embedding", "rag", "machine-learning", "ml", "model", "inference", "prompt", "fine-tune", "huggingface", "transformer", "neural", "mcp", "agent"]
+    },
+    "devtools": {
+      "name": "Developer Tools",
+      "description": "General development utilities and helpers",
+      "keywords": ["tool", "utility", "helper", "debug", "profile", "benchmark", "generator", "scaffold", "template", "cli", "formatter", "linter", "snippet", "boilerplate", "dotfiles", "config"]
+    }
+  },
+  "default_category": "devtools"
+}

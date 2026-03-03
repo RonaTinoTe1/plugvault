@@ -1,0 +1,121 @@
+name: Plugin Submission
+description: Submit a plugin to be included in PlugVault
+labels: [submission, needs-review]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for submitting a plugin to PlugVault!
+        Please fill out the form below. All submissions go through an automated security review before approval.
+
+  - type: input
+    id: name
+    attributes:
+      label: Plugin Name
+      description: The official name of your plugin as it appears in plugin.json or README.
+      placeholder: My Awesome Plugin
+    validations:
+      required: true
+
+  - type: input
+    id: url
+    attributes:
+      label: GitHub Repository URL
+      description: Full URL to the public GitHub repository.
+      placeholder: https://github.com/username/plugin-name
+    validations:
+      required: true
+
+  - type: dropdown
+    id: type
+    attributes:
+      label: Plugin Type
+      description: What kind of Claude Code extension is this?
+      options:
+        - Plugin (skills + commands)
+        - MCP Server
+        - Hooks
+        - Mixed (multiple types)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: Category
+      description: Select the most relevant category for your plugin.
+      options:
+        - engineering
+        - productivity
+        - automation
+        - data
+        - design
+        - business
+        - security
+        - testing
+        - devops
+        - other
+    validations:
+      required: true
+
+  - type: input
+    id: tags
+    attributes:
+      label: Tags
+      description: Comma-separated tags to help users find your plugin (max 5).
+      placeholder: "code-review, testing, python"
+
+  - type: textarea
+    id: short-description
+    attributes:
+      label: Short Description
+      description: One-line description (max 120 characters) shown in the catalog listing.
+      placeholder: Automated code review with AI-powered suggestions
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Detailed Description
+      description: Full description of what your plugin does, its features, and use cases.
+      placeholder: |
+        What does your plugin do?
+        - Key feature 1
+        - Key feature 2
+        What problem does it solve?
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Current version of the plugin.
+      placeholder: "1.0.0"
+
+  - type: input
+    id: claude-version
+    attributes:
+      label: Minimum Claude Code Version
+      description: Minimum Claude Code version required (if known).
+      placeholder: "1.0.0"
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Submission Checklist
+      description: Please confirm the following before submitting.
+      options:
+        - label: The plugin has a valid plugin.json or .claude-plugin/ structure
+          required: true
+        - label: The repository is public on GitHub
+          required: true
+        - label: The plugin is open-source (MIT, Apache 2.0, or similar license)
+          required: true
+        - label: The plugin does not contain malicious code or hidden data exfiltration
+          required: true
+        - label: I am the owner or an authorized maintainer of this plugin
+          required: false
+        - label: I have tested the plugin with the latest Claude Code version
+          required: false

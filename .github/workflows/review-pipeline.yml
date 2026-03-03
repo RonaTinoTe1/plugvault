@@ -1,0 +1,226 @@
+name: Plugin Quality Review Pipeline
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - "data/new-plugins.json"
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  quality-review:
+    name: Quality Score Plugins
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          if [ -f scripts/requirements.txt ]; then pip install -r scripts/requirements.txt; fi
+
+      - name: Read new plugins list
+        id: read_plugins
+        run: |
+          if [ ! -f data/new-plugins.json ]; then
+            echo "No data/new-plugins.json found."
+            echo "plugin_count=0" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          count=$(python3 -c "import json; d=json.load(open('data/new-plugins.json')); print(len(d.get('plugins', [])))")
+          echo "plugin_count=$count" >> "$GITHUB_OUTPUT"
+          echo "Found $count new plugin(s) to score."
+
+      - name: Run quality scorer on each new plugin
+        if: steps.read_plugins.outputs.plugin_count != '0'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p data/quality-scores
+          python3 - <<'EOF'
+          import json, subprocess, sys, os
+          from pathlib import Path
+
+          data = json.load(open("data/new-plugins.json"))
+          plugins = data.get("plugins", [])
+
+          results = []
+          for plugin in plugins:
+              url = plugin.get("github_url", "")
+              name = plugin.get("name", "unknown")
+              slug = name.lower().replace(" ", "-").replace("/", "-")
+              if not url:
+                  print(f"  Skipping {name}: no github_url", flush=True)
+                  continue
+
+              print(f"  Scoring {name} ({url})", flush=True)
+              out_file = f"data/quality-scores/{slug}.json"
+              try:
+                  result = subprocess.run(
+                      ["python3", "scripts/quality-scorer.py",
+                       "--github-url", url,
+                       "--output", out_file,
+                       "--slug", slug],
+                      capture_output=True, text=True, timeout=120,
+                      env={**os.environ}
+                  )
+                  if result.returncode == 0:
+                      score_data = json.load(open(out_file))
+                      results.append({
+                          "name": name,
+                          "slug": slug,
+                          "url": url,
+                          "score": score_data.get("score", 0),
+                          "grade": score_data.get("grade", "N/A"),
+                          "recommendation": score_data.get("recommendation", ""),
+                          "breakdown": score_data.get("breakdown", {}),
+                          "security": plugin.get("security_score", "UNKNOWN"),
+                      })
+                      print(f"    Score: {score_data.get('score')}/100  Grade: {score_data.get('grade')}", flush=True)
+                  else:
+                      print(f"    ERROR: {result.stderr[:200]}", flush=True)
+                      results.append({
+                          "name": name, "slug": slug, "url": url,
+                          "score": 0, "grade": "N/A",
+                          "recommendation": "Scorer failed: " + result.stderr[:100],
+                          "breakdown": {}, "security": "UNKNOWN",
+                      })
+              except subprocess.TimeoutExpired:
+                  print(f"    TIMEOUT scoring {name}", flush=True)
+                  results.append({
+                      "name": name, "slug": slug, "url": url,
+                      "score": 0, "grade": "N/A",
+                      "recommendation": "Timed out during scoring",
+                      "breakdown": {}, "security": "UNKNOWN",
+                  })
+
+          # Write results summary for next step
+          with open("/tmp/quality_results.json", "w") as f:
+              json.dump(results, f, indent=2)
+
+          print(f"\nScored {len(results)} plugin(s).")
+          EOF
+
+      - name: Generate PR comment
+        if: steps.read_plugins.outputs.plugin_count != '0'
+        id: generate_comment
+        run: |
+          python3 - <<'EOF'
+          import json, os
+
+          results_path = "/tmp/quality_results.json"
+          if not os.path.exists(results_path):
+              print("No results to comment.")
+              exit(0)
+
+          results = json.load(open(results_path))
+          if not results:
+              comment = "## Quality Review\n\nNo plugins were scored in this PR."
+          else:
+              grade_colors = {"A": "🟢", "B": "🔵", "C": "🟡", "D": "🟠", "F": "🔴", "N/A": "⚪"}
+              sec_colors = {"SAFE": "✅", "CAUTION": "⚠️", "DANGER": "❌", "UNKNOWN": "❓"}
+
+              rows = []
+              for r in results:
+                  grade = r.get("grade", "N/A")
+                  sec = r.get("security", "UNKNOWN")
+                  rows.append(
+                      f"| [{r['name']}]({r['url']}) "
+                      f"| {grade_colors.get(grade, '⚪')} **{r['score']}/100** "
+                      f"| {grade_colors.get(grade, '⚪')} {grade} "
+                      f"| {sec_colors.get(sec, '❓')} {sec} "
+                      f"| {r.get('recommendation', '')[:60]} |"
+                  )
+
+              table = "\n".join(rows)
+              comment = f"""## 🔍 Plugin Quality Review
+
+| Plugin | Quality Score | Grade | Security | Recommendation |
+|--------|--------------|-------|----------|----------------|
+{table}
+
+### Score Breakdown Legend
+- **README** (0–30): Documentation quality
+- **Maintenance** (0–25): Last commit recency
+- **GitHub Health** (0–20): Stars & issue ratio
+- **Documentation** (0–15): Changelog, license, examples
+- **Structure** (0–10): plugin.json, .claude/, skills/, hooks/
+
+> Scores are deterministic and reproducible. Grades: A ≥85 | B ≥70 | C ≥55 | D ≥40 | F <40
+"""
+
+          with open("/tmp/pr_comment.md", "w") as f:
+              f.write(comment)
+
+          print("Comment generated.")
+          EOF
+
+      - name: Post PR comment
+        if: steps.read_plugins.outputs.plugin_count != '0'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const commentPath = '/tmp/pr_comment.md';
+            if (!fs.existsSync(commentPath)) {
+              console.log('No comment file found, skipping.');
+              return;
+            }
+            const body = fs.readFileSync(commentPath, 'utf8');
+
+            // Delete existing bot comment if any
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            for (const c of comments) {
+              if (c.user.type === 'Bot' && c.body.includes('Plugin Quality Review')) {
+                await github.rest.issues.deleteComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  comment_id: c.id,
+                });
+              }
+            }
+
+            // Post new comment
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body,
+            });
+
+      - name: Write job summary
+        if: steps.read_plugins.outputs.plugin_count != '0'
+        run: |
+          if [ -f /tmp/pr_comment.md ]; then
+            cat /tmp/pr_comment.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Commit quality scores
+        if: steps.read_plugins.outputs.plugin_count != '0'
+        run: |
+          git config user.name "PlugVault Bot"
+          git config user.email "bot@plugvault.dev"
+          git add data/quality-scores/
+          if git diff --staged --quiet; then
+            echo "No new quality scores to commit."
+          else
+            git commit -m "chore: add quality scores for PR #${{ github.event.number }} plugins"
+            git push
+          fi

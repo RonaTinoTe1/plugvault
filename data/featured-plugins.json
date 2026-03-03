@@ -1,0 +1,10 @@
+{
+  "description": "Manually verified and highlighted plugins. These appear prominently in the marketplace.",
+  "featured": [
+    {
+      "slug": "forge",
+      "reason": "Official plugin by PlugVault team",
+      "highlighted_since": "2026-03-03"
+    }
+  ]
+}

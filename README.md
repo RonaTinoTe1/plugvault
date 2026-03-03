@@ -1,62 +1,61 @@
-# PlugVault — Claude Plugin Marketplace
+# PlugVault - Autonomous Claude Plugin Marketplace
 
-Marketplace autonome de plugins pour Claude Code et Cowork.
-Entierement gere par des agents IA et des taches planifiees.
+A fully autonomous marketplace for Claude Code and Claude Cowork plugins.
 
----
+## Features
+
+- **100+ Real Plugins**: Scans GitHub for actual Claude plugins
+- **Auto-Discovery**: Weekly scans find new plugins automatically
+- **Security Checks**: Pattern matching + VirusTotal integration
+- **Smart Categorization**: AI-powered category assignment
+- **One-Click Install**: Copy installation commands to clipboard
+
+## How It Works
+
+1. **Weekly Scan** (Sundays 20h UTC): Scans GitHub API and awesome-lists for new plugins
+2. **Security Check** (Mondays 3h UTC): Analyzes plugins for malicious patterns
+3. **Catalog Update** (Mondays 8h UTC): Builds the final catalog.json
+4. **Auto Deploy**: GitHub Pages updates automatically
+
+## Submit a Plugin
+
+1. Go to the [Submit](#submit) section on the site
+2. Fill out the form with your plugin details
+3. A GitHub Issue will be created
+4. Your plugin will be reviewed and added automatically
+
+## For Developers
+
+### GitHub Secrets
+
+| Secret | Required | Description |
+|--------|----------|-------------|
+| `GITHUB_TOKEN` | Auto | Provided by GitHub Actions |
+| `VT_API_KEY` | Optional | VirusTotal API key for enhanced security |
+
+### Local Development
+
+```bash
+# Install dependencies
+pip install -r scripts/requirements.txt
+
+# Run scanner
+GITHUB_TOKEN=your_token python scripts/scan-github.py
+
+# Run security check
+VT_API_KEY=your_key python scripts/security-scanner.py pluginslug
+
+# Build catalog
+GITHUB_TOKEN=your_token python scripts/build-catalog.py
+
+# Serve locally
+python -m http.server 8000
+```
 
 ## Architecture
 
-```
-Plugin-Marketplace/
-|-- index.html                    # Site web (dark editorial)
-|-- plugin-review-agent.py        # Agent autonome de review
-|-- catalog.json                  # Catalogue des plugins (auto-genere)
-|-- scheduled-tasks/
-|   |-- plugin-scanner-prompt.md  # Dim 20h — Scan GitHub
-|   |-- catalog-updater-prompt.md # Lun 8h — MAJ catalogue
-|   |-- quality-monitor-prompt.md # 1er du mois — Audit qualite
-|-- ~/Documents/PlugVault/
-    |-- reviews/                  # Rapports de review
-    |-- scans/                    # Resultats de scan
-    |-- reports/                  # Rapports hebdo/mensuels
-```
+See [docs/plans/2026-03-03-autonomous-marketplace-design.md](docs/plans/2026-03-03-autonomous-marketplace-design.md) for full design documentation.
 
-## Workflow autonome
+## License
 
-1. **Scanner** (dimanche) — Recherche de nouveaux plugins sur GitHub
-2. **Review Agent** (on-demand) — Analyse automatique des soumissions
-3. **Catalog Updater** (lundi) — MAJ du site avec les plugins approuves
-4. **Quality Monitor** (mensuel) — Audit et nettoyage du catalogue
-
-## Usage
-
-### Lancer une review manuelle
-```bash
-export ANTHROPIC_API_KEY="sk-ant-..."
-python plugin-review-agent.py https://github.com/user/plugin
-```
-
-### Installer les taches planifiees
-Dans Claude Cowork, creer 3 taches planifiees avec les prompts dans scheduled-tasks/.
-
-## Stack
-
-- **Frontend** : HTML/CSS/JS vanilla (dark editorial brutalist)
-- **Backend** : Agents Python + Anthropic API
-- **Automation** : Claude Cowork Scheduled Tasks
-- **Hosting** : Statique (GitHub Pages, Vercel, ou local)
-
-## Cout mensuel estime
-
-| Composant | Frequence | Cout estime |
-|-----------|-----------|-------------|
-| Plugin Scanner | 1x/semaine | ~$0.10 |
-| Review Agent | ~5x/semaine | ~$0.50 |
-| Catalog Updater | 1x/semaine | ~$0.05 |
-| Quality Monitor | 1x/mois | ~$0.10 |
-| **Total** | | **~$3/mois** |
-
----
-
-*PlugVault — Marketplace autonome, gere par agents IA.*
+MIT

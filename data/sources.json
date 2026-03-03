@@ -1,0 +1,72 @@
+{
+  "awesome_lists": [
+    {
+      "name": "awesome-claude-code-plugins",
+      "url": "https://github.com/ccplugins/awesome-claude-code-plugins",
+      "raw_readme": "https://raw.githubusercontent.com/ccplugins/awesome-claude-code-plugins/main/README.md",
+      "type": "awesome-list"
+    },
+    {
+      "name": "awesome-claude-plugins-chat2any",
+      "url": "https://github.com/Chat2AnyLLM/awesome-claude-plugins",
+      "raw_readme": "https://raw.githubusercontent.com/Chat2AnyLLM/awesome-claude-plugins/main/README.md",
+      "type": "awesome-list"
+    },
+    {
+      "name": "awesome-claude-plugins-gilad",
+      "url": "https://github.com/GiladShoham/awesome-claude-plugins",
+      "raw_readme": "https://raw.githubusercontent.com/GiladShoham/awesome-claude-plugins/main/README.md",
+      "type": "awesome-list"
+    },
+    {
+      "name": "awesome-claude-code-jmanhype",
+      "url": "https://github.com/jmanhype/awesome-claude-code",
+      "raw_readme": "https://raw.githubusercontent.com/jmanhype/awesome-claude-code/main/README.md",
+      "type": "awesome-list"
+    },
+    {
+      "name": "awesome-claude-plugins-quemsah",
+      "url": "https://github.com/quemsah/awesome-claude-plugins",
+      "raw_readme": "https://raw.githubusercontent.com/quemsah/awesome-claude-plugins/main/README.md",
+      "type": "awesome-list"
+    },
+    {
+      "name": "awesome-mcp-servers",
+      "url": "https://github.com/punkpeye/awesome-mcp-servers",
+      "raw_readme": "https://raw.githubusercontent.com/punkpeye/awesome-mcp-servers/main/README.md",
+      "type": "awesome-list"
+    },
+    {
+      "name": "awesome-claude-code",
+      "url": "https://github.com/wong2/awesome-claude-code",
+      "raw_readme": "https://raw.githubusercontent.com/wong2/awesome-claude-code/main/README.md",
+      "type": "awesome-list"
+    }
+  ],
+  "github_search_queries": [
+    "claude-plugin in:topics",
+    "claude-code-plugin in:topics",
+    "claude-mcp in:topics",
+    "claude-code plugin in:name,description",
+    "claude-code skill in:name,description",
+    "claude-cowork plugin in:name,description",
+    "claude-code skills in:readme",
+    "claude-code hooks in:readme",
+    "CLAUDE.md plugin in:readme",
+    "anthropic claude plugin in:topics",
+    "mcp-server claude in:topics",
+    "claude-code extension in:name,description",
+    "claude-agent skill in:name,description"
+  ],
+  "official_orgs": [
+    "anthropics",
+    "modelcontextprotocol"
+  ],
+  "manual_plugins": [
+    {
+      "url": "https://github.com/nathanielalex/forge",
+      "reason": "Official PlugVault plugin by team",
+      "added": "2026-03-03"
+    }
+  ]
+}

@@ -1,0 +1,259 @@
+name: Plugin Health Check
+
+on:
+  schedule:
+    - cron: '0 10 * * 3'  # Wednesday 10h UTC
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  health-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      issues: write
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.11'
+
+      - name: Cache pip dependencies
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ runner.os }}-${{ hashFiles('scripts/requirements.txt') }}
+          restore-keys: |
+            pip-${{ runner.os }}-
+
+      - name: Install requirements
+        run: pip install -r scripts/requirements.txt
+
+      - name: Run health checker
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python scripts/health-checker.py --catalog catalog.json --output data/health-report.json
+
+      - name: Commit plugin-history.json (metrics update)
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/plugin-history.json data/health-report.json
+          if git diff --staged --quiet; then
+            echo "No history changes to commit"
+          else
+            git commit -m "chore: update plugin health metrics [$(date -u +%Y-%m-%d)]"
+          fi
+
+      - name: Parse health results
+        id: health
+        run: |
+          python3 -c "
+          import json, sys
+
+          with open('data/health-report.json') as f:
+              report = json.load(f)
+
+          plugins = report.get('plugins', {})
+          summary = report.get('summary', {})
+
+          dead = [slug for slug, info in plugins.items() if info.get('status') == 'dead']
+          archived = [slug for slug, info in plugins.items() if info.get('status') == 'archived']
+          maintenance = [slug for slug, info in plugins.items() if info.get('status') == 'maintenance']
+          active = [slug for slug, info in plugins.items() if info.get('status') == 'active']
+
+          print(f'dead_count={len(dead)}')
+          print(f'archived_count={len(archived)}')
+          print(f'maintenance_count={len(maintenance)}')
+          print(f'active_count={len(active)}')
+          print(f'total={summary.get(\"total\", 0)}')
+          print(f'dead_list={\" \".join(dead)}')
+          print(f'archived_list={\" \".join(archived)}')
+          " >> \$GITHUB_OUTPUT
+
+      - name: Rebuild catalog (exclude dead plugins)
+        if: steps.health.outputs.dead_count != '0'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python scripts/build-catalog.py
+
+      - name: Commit catalog (dead plugins removed)
+        if: steps.health.outputs.dead_count != '0'
+        run: |
+          git add catalog.json data/archived-plugins.json
+          if git diff --staged --quiet; then
+            echo "No catalog changes to commit"
+          else
+            git commit -m "chore: remove dead plugins from catalog [$(date -u +%Y-%m-%d)]"
+          fi
+
+      - name: Rebuild catalog (archived badge update)
+        if: steps.health.outputs.archived_count != '0' && steps.health.outputs.dead_count == '0'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python scripts/build-catalog.py
+
+      - name: Commit catalog (archived status update)
+        if: steps.health.outputs.archived_count != '0' && steps.health.outputs.dead_count == '0'
+        run: |
+          git add catalog.json
+          if git diff --staged --quiet; then
+            echo "No catalog changes to commit"
+          else
+            git commit -m "chore: update archived plugin badges [$(date -u +%Y-%m-%d)]"
+          fi
+
+      - name: Push changes
+        run: |
+          git push origin main || echo "Nothing to push"
+
+      - name: Create issue for dead plugins
+        if: steps.health.outputs.dead_count != '0'
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+        with:
+          script: |
+            const dead = '${{ steps.health.outputs.dead_list }}'.trim().split(' ').filter(Boolean);
+            const body = [
+              '## 🔴 Plugins supprimés du catalog',
+              '',
+              `**Date:** ${new Date().toISOString().split('T')[0]}`,
+              `**Nombre de plugins supprimés:** ${dead.length}`,
+              '',
+              '### Plugins retirés',
+              ...dead.map(slug => `- \`${slug}\``),
+              '',
+              '> Ces plugins ont été retirés car leur dépôt GitHub est inaccessible (404 ou erreur réseau).',
+              '> Ils ont été déplacés vers `data/archived-plugins.json`.',
+              '',
+              `**Workflow run:** [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})`,
+            ].join('\n');
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `🔴 Plugins supprimés du catalog: ${dead.join(', ')}`,
+              body,
+              labels: ['health-check', 'dead-plugins'],
+            });
+
+      - name: Create issue for newly archived plugins
+        if: steps.health.outputs.archived_count != '0'
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+        with:
+          script: |
+            const archived = '${{ steps.health.outputs.archived_list }}'.trim().split(' ').filter(Boolean);
+            const body = [
+              '## 📦 Plugins archivés',
+              '',
+              `**Date:** ${new Date().toISOString().split('T')[0]}`,
+              `**Nombre de plugins archivés:** ${archived.length}`,
+              '',
+              '### Plugins archivés',
+              ...archived.map(slug => `- \`${slug}\` — dépôt archivé sur GitHub ou inactif depuis >180 jours`),
+              '',
+              '> Ces plugins restent visibles dans le catalog avec le badge 📦 Archived.',
+              '> Ils peuvent être réactivés si leur maintenance reprend.',
+              '',
+              `**Workflow run:** [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})`,
+            ].join('\n');
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `📦 Plugins archivés: ${archived.join(', ')}`,
+              body,
+              labels: ['health-check', 'archived-plugins'],
+            });
+
+      - name: Generate weekly health report and create issue
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+        with:
+          script: |
+            const fs = require('fs');
+            const report = JSON.parse(fs.readFileSync('data/health-report.json', 'utf8'));
+            const plugins = report.plugins || {};
+            const summary = report.summary || {};
+            const checkDate = report.check_date || new Date().toISOString().split('T')[0];
+
+            const rows = Object.entries(plugins).map(([slug, info]) => {
+              const statusEmoji = {
+                active: '✅',
+                maintenance: '⚠️',
+                archived: '📦',
+                dead: '🔴',
+                unknown: '❓',
+              }[info.status] || '❓';
+
+              const trend = {
+                growing: '📈',
+                stable: '➡️',
+                declining: '📉',
+              }[info.stars_trend] || '➡️';
+
+              const days = info.days_since_commit != null ? `${info.days_since_commit}d` : 'N/A';
+              return `| ${slug} | ${statusEmoji} ${info.status} | ${days} | ${trend} ${info.stars_trend} |`;
+            });
+
+            const body = [
+              `## 📊 Weekly Health Report — ${checkDate}`,
+              '',
+              '### Summary',
+              '',
+              `| Metric | Count |`,
+              `|--------|-------|`,
+              `| Total plugins | ${summary.total || 0} |`,
+              `| ✅ Active | ${summary.active || 0} |`,
+              `| ⚠️ Maintenance | ${summary.maintenance || 0} |`,
+              `| 📦 Archived | ${summary.archived || 0} |`,
+              `| 🔴 Dead | ${summary.dead || 0} |`,
+              '',
+              '### Plugin Details',
+              '',
+              '| Plugin | Status | Days since commit | Stars trend |',
+              '|--------|--------|-------------------|-------------|',
+              ...rows,
+              '',
+              `> Generated by the Health Check workflow on ${checkDate}`,
+              `> **Run:** [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})`,
+            ].join('\n');
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `📊 Weekly Health Report — ${checkDate}`,
+              body,
+              labels: ['health-check', 'weekly-report'],
+            });
+
+      - name: Job Summary
+        run: |
+          echo "## 🏥 Plugin Health Check" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Date:** $(date -u +%Y-%m-%d)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Status | Count |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Total | ${{ steps.health.outputs.total }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| ✅ Active | ${{ steps.health.outputs.active_count }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| ⚠️ Maintenance | ${{ steps.health.outputs.maintenance_count }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 📦 Archived | ${{ steps.health.outputs.archived_count }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🔴 Dead | ${{ steps.health.outputs.dead_count }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ steps.health.outputs.dead_count }}" != "0" ]; then
+            echo "### 🔴 Dead plugins removed" >> $GITHUB_STEP_SUMMARY
+            echo "${{ steps.health.outputs.dead_list }}" | tr ' ' '\n' | sed 's/^/- /' >> $GITHUB_STEP_SUMMARY
+          fi
+          if [ "${{ steps.health.outputs.archived_count }}" != "0" ]; then
+            echo "### 📦 Archived plugins" >> $GITHUB_STEP_SUMMARY
+            echo "${{ steps.health.outputs.archived_list }}" | tr ' ' '\n' | sed 's/^/- /' >> $GITHUB_STEP_SUMMARY
+          fi

@@ -1,0 +1,117 @@
+name: Auto-merge Checker
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'  # Every 6 hours
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  check-and-merge:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check and auto-merge stale review PRs
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const THRESHOLD_MS = 48 * 60 * 60 * 1000; // 48 hours in ms
+            const now = new Date();
+
+            // Fetch all open PRs with the needs-review label
+            const allPRs = await github.paginate(github.rest.pulls.list, {
+              owner,
+              repo,
+              state: 'open',
+              per_page: 100,
+            });
+
+            const reviewPRs = allPRs.filter(pr =>
+              pr.labels.some(l => l.name === 'needs-review')
+            );
+
+            console.log(`Found ${reviewPRs.length} PR(s) with label 'needs-review'`);
+
+            let merged = 0;
+            let skipped = 0;
+
+            for (const pr of reviewPRs) {
+              const ageMs = now - new Date(pr.created_at);
+              const hoursOld = Math.floor(ageMs / (1000 * 60 * 60));
+
+              console.log(`\nPR #${pr.number}: "${pr.title}" (${hoursOld}h old)`);
+
+              if (ageMs < THRESHOLD_MS) {
+                console.log(`  -> Skipping: only ${hoursOld}h old (threshold: 48h)`);
+                skipped++;
+                continue;
+              }
+
+              // Check all comments for BLOCK or REJECT keywords
+              const comments = await github.paginate(github.rest.issues.listComments, {
+                owner,
+                repo,
+                issue_number: pr.number,
+                per_page: 100,
+              });
+
+              const hasBlock = comments.some(c =>
+                /\b(BLOCK|REJECT)\b/i.test(c.body || '')
+              );
+
+              if (hasBlock) {
+                console.log(`  -> Skipping: BLOCK or REJECT comment found`);
+                skipped++;
+                continue;
+              }
+
+              // Post pre-merge notice
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: pr.number,
+                body: '⏰ 48h écoulées sans objection — merge automatique.'
+              });
+
+              // Merge the PR
+              try {
+                await github.rest.pulls.merge({
+                  owner,
+                  repo,
+                  pull_number: pr.number,
+                  merge_method: 'squash',
+                  commit_title: `feat: auto-merge plugin submission (PR #${pr.number})`,
+                  commit_message: `Auto-merged after 48h review period with no objections.`,
+                });
+                console.log(`  -> Merged successfully`);
+                merged++;
+              } catch (err) {
+                console.error(`  -> Merge failed: ${err.message}`);
+              }
+            }
+
+            console.log(`\nSummary: ${merged} merged, ${skipped} skipped`);
+
+            // Write job summary
+            const summary = [
+              '## Auto-merge Checker',
+              '',
+              `**PRs with \`needs-review\`:** ${reviewPRs.length}`,
+              `**Auto-merged:** ${merged}`,
+              `**Skipped:** ${skipped}`,
+              '',
+              merged > 0
+                ? 'Merged PRs will trigger the Update Catalog workflow automatically.'
+                : 'No PRs were ready for auto-merge.',
+            ].join('\n');
+
+            await core.summary.addRaw(summary).write();

@@ -1,0 +1,130 @@
+name: Scan for New Plugins
+on:
+  schedule:
+    - cron: '0 20 * * 0'  # Sunday 20h UTC
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.11'
+
+      - name: Cache pip dependencies
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ runner.os }}-${{ hashFiles('scripts/requirements.txt') }}
+          restore-keys: |
+            pip-${{ runner.os }}-
+
+      - name: Install requirements
+        run: pip install -r scripts/requirements.txt
+
+      - name: Run plugin scanner
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python scripts/scan-github.py
+
+      - name: Check for new plugins
+        id: check-plugins
+        run: |
+          if [ -f data/new-plugins.json ]; then
+            plugin_count=$(python -c "import json; data=json.load(open('data/new-plugins.json')); print(len(data) if isinstance(data, list) else len(data.get('plugins', [])))")
+            if [ "$plugin_count" -gt 0 ]; then
+              echo "has_new=true" >> $GITHUB_OUTPUT
+              echo "count=$plugin_count" >> $GITHUB_OUTPUT
+            else
+              echo "has_new=false" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "has_new=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Generate plugin summary
+        id: plugin-summary
+        if: steps.check-plugins.outputs.has_new == 'true'
+        run: |
+          summary=$(python3 -c "
+          import json
+
+          with open('data/new-plugins.json') as f:
+              data = json.load(f)
+
+          plugins = data if isinstance(data, list) else data.get('plugins', [])
+
+          lines = []
+          lines.append('| # | Plugin | Repository | Stars |')
+          lines.append('|---|--------|------------|-------|')
+          for i, p in enumerate(plugins[:20], 1):
+              name = p.get('name', 'Unknown')
+              repo = p.get('repo', p.get('url', p.get('github_url', 'N/A')))
+              stars = p.get('stars', p.get('stargazers_count', '?'))
+              lines.append(f'| {i} | {name} | {repo} | {stars} |')
+
+          if len(plugins) > 20:
+              lines.append(f'| | ... and {len(plugins) - 20} more | | |')
+
+          print('\n'.join(lines))
+          ")
+          echo "table<<EOF" >> $GITHUB_OUTPUT
+          echo "$summary" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Upload new-plugins.json as artifact
+        if: steps.check-plugins.outputs.has_new == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: new-plugins-${{ github.run_number }}
+          path: data/new-plugins.json
+          retention-days: 30
+
+      - name: Create Pull Request
+        if: steps.check-plugins.outputs.has_new == 'true'
+        uses: peter-evans/create-pull-request@271a8d0340265f705b14b6f23e58c17d186e1a01 # v5.0.2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "chore: add ${{ steps.check-plugins.outputs.count }} new plugins from scan"
+          title: "chore: add ${{ steps.check-plugins.outputs.count }} new plugins from scan"
+          body: |
+            ## New Plugins Detected
+
+            **Scan date:** ${{ github.event.repository.updated_at }}
+            **Number of new plugins:** ${{ steps.check-plugins.outputs.count }}
+            **Workflow run:** [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+
+            ### Plugins Found
+
+            ${{ steps.plugin-summary.outputs.table }}
+
+            ---
+            Please review the changes in `data/new-plugins.json` before merging.
+            A security check will run automatically on this PR.
+          branch: auto-scan/${{ github.run_number }}
+          labels: auto-scan
+          delete-branch: true
+
+      - name: Job Summary
+        run: |
+          echo "## Scan for New Plugins" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ steps.check-plugins.outputs.has_new }}" = "true" ]; then
+            echo "**${{ steps.check-plugins.outputs.count }} new plugins found.**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "${{ steps.plugin-summary.outputs.table }}" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "A PR has been created for review." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "No new plugins found during this scan." >> $GITHUB_STEP_SUMMARY
+          fi

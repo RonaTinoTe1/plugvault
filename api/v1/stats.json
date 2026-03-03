@@ -1,0 +1,18 @@
+{
+  "total_plugins": 1,
+  "total_categories": 1,
+  "last_updated": "2026-03-03",
+  "last_scan": "",
+  "by_category": {
+    "business": 1
+  },
+  "by_badge": {
+    "official": 1,
+    "verified": 0,
+    "community": 0
+  },
+  "by_security": {
+    "UNKNOWN": 1
+  },
+  "avg_quality_score": 0
+}

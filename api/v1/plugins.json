@@ -1,7 +1,10 @@
 {
-  "version": "1.1.0",
-  "last_updated": "2026-03-03",
-  "plugins": [
+  "version": "1",
+  "total": 1,
+  "page": 1,
+  "per_page": 20,
+  "pages": 1,
+  "data": [
     {
       "name": "FORGE",
       "slug": "forge",
@@ -11,7 +14,11 @@
       "description": "Full-stack solo founder toolkit. Idea validation, MVP planning, growth engineering, pricing strategy, and French micro-entrepreneur compliance.",
       "github_url": "https://github.com/nathanielalex/forge",
       "readme_url": "",
-      "install_methods": ["marketplace", "standalone", "git"],
+      "install_methods": [
+        "marketplace",
+        "standalone",
+        "git"
+      ],
       "featured": false,
       "skills": 6,
       "commands": 10,
@@ -19,17 +26,19 @@
       "weekly_downloads": 0,
       "added": "2026-03-03",
       "status": "active",
-      "tags": ["saas", "founder", "growth", "french-business"],
+      "tags": [
+        "saas",
+        "founder",
+        "growth",
+        "french-business"
+      ],
       "quality_score": 0,
       "quality_grade": "N/A",
       "review_summary": ""
     }
   ],
-  "stats": {
-    "total_plugins": 1,
-    "total_downloads": 0,
-    "total_weekly_downloads": 0,
-    "featured_count": 0,
-    "categories": ["business", "engineering", "automation", "data", "design", "productivity", "security", "testing", "devops", "ai", "devtools"]
+  "meta": {
+    "last_updated": "2026-03-03",
+    "next_page": null
   }
 }

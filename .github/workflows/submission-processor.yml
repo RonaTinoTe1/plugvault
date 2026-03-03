@@ -1,0 +1,321 @@
+name: Process Plugin Submission
+
+on:
+  issues:
+    types: [opened, labeled]
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: submission-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  process:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Trigger when issue is opened with "submission" label (from template)
+    # OR when the "submission" label is explicitly added to an issue
+    if: >-
+      (github.event.action == 'opened' && contains(github.event.issue.labels.*.name, 'submission')) ||
+      (github.event.action == 'labeled' && github.event.label.name == 'submission')
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      # ── Step 1: extract the GitHub URL from the issue body ──────────────
+      - name: Extract plugin URL
+        id: extract
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+        with:
+          script: |
+            const body = context.payload.issue.body || '';
+            const match = body.match(/https:\/\/github\.com\/[a-zA-Z0-9_.\-]+\/[a-zA-Z0-9_.\-]+/);
+
+            if (!match) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.payload.issue.number,
+                body: '❌ No valid GitHub URL found in submission.\n\nPlease include the full repository URL, e.g. `https://github.com/owner/plugin-name`.'
+              });
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.payload.issue.number,
+                state: 'closed'
+              });
+              core.setOutput('valid', 'false');
+              return;
+            }
+
+            const url = match[0].replace(/\.git$/, '');
+            core.setOutput('plugin_url', url);
+            core.setOutput('valid', 'true');
+            console.log(`Extracted URL: ${url}`);
+
+      # ── Step 2: Python environment ──────────────────────────────────────
+      - name: Setup Python 3.11
+        if: steps.extract.outputs.valid == 'true'
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.11'
+
+      - name: Cache pip dependencies
+        if: steps.extract.outputs.valid == 'true'
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ runner.os }}-${{ hashFiles('scripts/requirements.txt') }}
+          restore-keys: |
+            pip-${{ runner.os }}-
+
+      - name: Install requirements
+        if: steps.extract.outputs.valid == 'true'
+        run: |
+          pip install -r scripts/requirements.txt
+          pip install vt-py
+
+      # ── Step 3: scan the submitted repo ─────────────────────────────────
+      - name: Scan plugin repository
+        if: steps.extract.outputs.valid == 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python scripts/scan-github.py --single-url "${{ steps.extract.outputs.plugin_url }}"
+
+      - name: Validate scan output
+        id: validate-scan
+        if: steps.extract.outputs.valid == 'true'
+        run: |
+          PLUGIN_COUNT=$(python3 -c "
+          import json, sys
+          try:
+              data = json.load(open('data/new-plugins.json'))
+              print(len(data.get('plugins', [])))
+          except Exception:
+              print(0)
+          ")
+          if [ "$PLUGIN_COUNT" -eq 0 ]; then
+            echo "scan_ok=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "scan_ok=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Comment if scan failed
+        if: steps.extract.outputs.valid == 'true' && steps.validate-scan.outputs.scan_ok == 'false'
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+        env:
+          PLUGIN_URL: ${{ steps.extract.outputs.plugin_url }}
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.issue.number,
+              body: `❌ Could not fetch repository data for \`${process.env.PLUGIN_URL}\`.\n\nPlease verify the URL is correct and the repository is public.`
+            });
+            await github.rest.issues.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.issue.number,
+              state: 'closed'
+            });
+
+      # ── Step 4: security scan ────────────────────────────────────────────
+      - name: Run security scanner
+        if: steps.extract.outputs.valid == 'true' && steps.validate-scan.outputs.scan_ok == 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VT_API_KEY: ${{ secrets.VT_API_KEY }}
+        run: |
+          mkdir -p data/security-reports
+          python scripts/security-scanner.py
+
+      # ── Step 5: decision engine ──────────────────────────────────────────
+      - name: Run decision engine
+        id: decision
+        if: steps.extract.outputs.valid == 'true' && steps.validate-scan.outputs.scan_ok == 'true'
+        run: |
+          PLUGIN_NAME=$(python3 -c "
+          import json
+          data = json.load(open('data/new-plugins.json'))
+          plugins = data.get('plugins', [])
+          print(plugins[0].get('name', 'unknown') if plugins else 'unknown')
+          ")
+
+          PLUGIN_SLUG=$(python3 -c "
+          import json, re
+          data = json.load(open('data/new-plugins.json'))
+          plugins = data.get('plugins', [])
+          name = plugins[0].get('name', 'unknown') if plugins else 'unknown'
+          slug = re.sub(r'[^a-zA-Z0-9\-]', '-', name.lower())
+          slug = re.sub(r'-+', '-', slug)
+          print(slug.strip('-'))
+          ")
+
+          SECURITY_REPORT="data/security-reports/${PLUGIN_SLUG}.json"
+
+          if [ ! -f "$SECURITY_REPORT" ]; then
+            echo "Security report not found at ${SECURITY_REPORT}, using CAUTION fallback"
+            mkdir -p data/security-reports
+            printf '{"score":"CAUTION","plugin":"%s","issues":[],"github_url":""}' "$PLUGIN_SLUG" > "$SECURITY_REPORT"
+          fi
+
+          # Quality score defaults to 75 until quality-scorer is implemented (task #2)
+          QUALITY_SCORE=75
+
+          set +e
+          python scripts/decision-engine.py \
+            --security-report "$SECURITY_REPORT" \
+            --quality-score "$QUALITY_SCORE" \
+            > /tmp/decision.json 2>/tmp/decision-err.txt
+          DECISION_EXIT=$?
+          set -e
+
+          # Validate JSON output
+          if ! python3 -c "import json; json.load(open('/tmp/decision.json'))" 2>/dev/null; then
+            echo "Decision engine error:" >&2
+            cat /tmp/decision-err.txt >&2
+            printf '{"decision":"WAIT","reason":"Decision engine error — defaulting to manual review","security_score":"UNKNOWN","quality_score":0,"issues_count":0}' > /tmp/decision.json
+            DECISION_EXIT=1
+          fi
+
+          DECISION=$(python3 -c "import json; print(json.load(open('/tmp/decision.json'))['decision'])")
+          REASON=$(python3 -c "import json; print(json.load(open('/tmp/decision.json'))['reason'])")
+          SECURITY_SCORE=$(python3 -c "import json; print(json.load(open('/tmp/decision.json'))['security_score'])")
+          ISSUES_COUNT=$(python3 -c "import json; print(json.load(open('/tmp/decision.json'))['issues_count'])")
+
+          echo "decision=$DECISION"         >> "$GITHUB_OUTPUT"
+          echo "quality_score=$QUALITY_SCORE" >> "$GITHUB_OUTPUT"
+          echo "plugin_name=$PLUGIN_NAME"   >> "$GITHUB_OUTPUT"
+          echo "plugin_slug=$PLUGIN_SLUG"   >> "$GITHUB_OUTPUT"
+          echo "issues_count=$ISSUES_COUNT" >> "$GITHUB_OUTPUT"
+          echo "security_score=$SECURITY_SCORE" >> "$GITHUB_OUTPUT"
+          # Multiline-safe heredoc for reason
+          echo "reason<<__EOF_REASON__"     >> "$GITHUB_OUTPUT"
+          echo "$REASON"                    >> "$GITHUB_OUTPUT"
+          echo "__EOF_REASON__"             >> "$GITHUB_OUTPUT"
+
+      # ════════════════════════════════════════════════════════════════════
+      # AUTO_MERGE path
+      # ════════════════════════════════════════════════════════════════════
+      - name: AUTO_MERGE - Build catalog and push
+        if: steps.extract.outputs.valid == 'true' && steps.validate-scan.outputs.scan_ok == 'true' && steps.decision.outputs.decision == 'AUTO_MERGE'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python scripts/build-catalog.py
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add catalog.json data/new-plugins.json data/security-reports/
+          git diff --staged --quiet || git commit -m "feat: auto-add plugin from submission #${{ github.event.issue.number }}"
+          git push
+
+      - name: AUTO_MERGE - Comment and close issue
+        if: steps.extract.outputs.valid == 'true' && steps.validate-scan.outputs.scan_ok == 'true' && steps.decision.outputs.decision == 'AUTO_MERGE'
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+        env:
+          SECURITY_SCORE: ${{ steps.decision.outputs.security_score }}
+          QUALITY_SCORE: ${{ steps.decision.outputs.quality_score }}
+          PLUGIN_NAME: ${{ steps.decision.outputs.plugin_name }}
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const issueNumber = context.payload.issue.number;
+            await github.rest.issues.createComment({
+              owner, repo,
+              issue_number: issueNumber,
+              body: `✅ **Plugin added to the catalog!**\n\n| | |\n|---|---|\n| **Plugin** | \`${process.env.PLUGIN_NAME}\` |\n| **Security score** | ${process.env.SECURITY_SCORE} |\n| **Quality score** | ${process.env.QUALITY_SCORE}/100 |\n\nThe plugin has been automatically merged into the catalog.`
+            });
+            try {
+              await github.rest.issues.addLabels({ owner, repo, issue_number: issueNumber, labels: ['added'] });
+            } catch (_) {}
+            await github.rest.issues.update({ owner, repo, issue_number: issueNumber, state: 'closed' });
+
+      # ════════════════════════════════════════════════════════════════════
+      # WAIT path
+      # ════════════════════════════════════════════════════════════════════
+      - name: WAIT - Stage files for PR
+        if: steps.extract.outputs.valid == 'true' && steps.validate-scan.outputs.scan_ok == 'true' && steps.decision.outputs.decision == 'WAIT'
+        run: git add data/new-plugins.json data/security-reports/ || true
+
+      - name: WAIT - Create review PR
+        id: create-pr
+        if: steps.extract.outputs.valid == 'true' && steps.validate-scan.outputs.scan_ok == 'true' && steps.decision.outputs.decision == 'WAIT'
+        uses: peter-evans/create-pull-request@271a8d0340265f705b14b6f23e58c17d186e1a01 # v5.0.2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "feat: add plugin from submission #${{ github.event.issue.number }}"
+          title: "feat: add plugin from submission #${{ github.event.issue.number }} (${{ steps.decision.outputs.plugin_name }})"
+          body: |
+            ## Plugin Submission Review
+
+            Closes #${{ github.event.issue.number }}
+
+            | | |
+            |---|---|
+            | **Plugin** | `${{ steps.decision.outputs.plugin_name }}` |
+            | **URL** | ${{ steps.extract.outputs.plugin_url }} |
+            | **Security score** | ${{ steps.decision.outputs.security_score }} |
+            | **Quality score** | ${{ steps.decision.outputs.quality_score }}/100 |
+            | **Issues found** | ${{ steps.decision.outputs.issues_count }} |
+
+            **Reason for review:** ${{ steps.decision.outputs.reason }}
+
+            ---
+            Review `data/new-plugins.json` and `data/security-reports/` before merging.
+            To block auto-merge, comment with **BLOCK** or **REJECT**.
+          branch: submission/${{ github.event.issue.number }}
+          labels: needs-review
+          delete-branch: true
+
+      - name: WAIT - Comment and label issue
+        if: steps.extract.outputs.valid == 'true' && steps.validate-scan.outputs.scan_ok == 'true' && steps.decision.outputs.decision == 'WAIT'
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+        env:
+          SECURITY_SCORE: ${{ steps.decision.outputs.security_score }}
+          REASON: ${{ steps.decision.outputs.reason }}
+          PR_URL: ${{ steps.create-pr.outputs.pull-request-url }}
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const issueNumber = context.payload.issue.number;
+            const prUrl = process.env.PR_URL || '(PR pending)';
+            await github.rest.issues.createComment({
+              owner, repo,
+              issue_number: issueNumber,
+              body: `⏳ **Plugin pending human review.**\n\n**Security score:** ${process.env.SECURITY_SCORE}\n**Reason:** ${process.env.REASON}\n\nA review PR has been created: ${prUrl}\n\nA maintainer will review within 48h. The plugin will be auto-merged if no objections are raised.`
+            });
+            try {
+              await github.rest.issues.addLabels({ owner, repo, issue_number: issueNumber, labels: ['needs-review'] });
+            } catch (_) {}
+
+      # ════════════════════════════════════════════════════════════════════
+      # REJECT path
+      # ════════════════════════════════════════════════════════════════════
+      - name: REJECT - Comment and close issue
+        if: steps.extract.outputs.valid == 'true' && steps.validate-scan.outputs.scan_ok == 'true' && steps.decision.outputs.decision == 'REJECT'
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+        env:
+          SECURITY_SCORE: ${{ steps.decision.outputs.security_score }}
+          REASON: ${{ steps.decision.outputs.reason }}
+          ISSUES_COUNT: ${{ steps.decision.outputs.issues_count }}
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const issueNumber = context.payload.issue.number;
+            await github.rest.issues.createComment({
+              owner, repo,
+              issue_number: issueNumber,
+              body: `❌ **Plugin rejected.**\n\n**Reason:** ${process.env.REASON}\n**Security score:** ${process.env.SECURITY_SCORE}\n**Issues detected:** ${process.env.ISSUES_COUNT}\n\nThis plugin was rejected due to security issues. If you believe this is a false positive, please open a new issue with additional context.`
+            });
+            try {
+              await github.rest.issues.addLabels({ owner, repo, issue_number: issueNumber, labels: ['rejected'] });
+            } catch (_) {}
+            await github.rest.issues.update({ owner, repo, issue_number: issueNumber, state: 'closed' });

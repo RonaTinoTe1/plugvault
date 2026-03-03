@@ -1,0 +1,73 @@
+name: Failure Monitor
+
+on:
+  workflow_run:
+    workflows:
+      - "Scan for New Plugins"
+      - "Security Check"
+      - "Update Catalog"
+      - "Deploy to GitHub Pages"
+    types: [completed]
+
+permissions:
+  issues: write
+
+jobs:
+  notify-failure:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: ${{ github.event.workflow_run.conclusion == 'failure' }}
+    steps:
+      - name: Create failure issue
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const run = context.payload.workflow_run;
+            const ts = new Date(run.created_at).toISOString();
+
+            const title = `🚨 Workflow Failed: ${run.name}`;
+            const body = [
+              `## Workflow Failure Alert`,
+              ``,
+              `| | |`,
+              `|---|---|`,
+              `| **Workflow** | ${run.name} |`,
+              `| **Run** | [#${run.run_number}](${run.html_url}) |`,
+              `| **Branch** | \`${run.head_branch}\` |`,
+              `| **Commit** | \`${run.head_sha.substring(0, 7)}\` |`,
+              `| **Triggered at** | ${ts} |`,
+              ``,
+              `[View failed run ↗](${run.html_url})`,
+              ``,
+              `---`,
+              `_This issue was created automatically by the Failure Monitor workflow._`,
+            ].join('\n');
+
+            // Check if an open issue for this exact run already exists (avoid duplicates)
+            const existing = await github.paginate(github.rest.issues.listForRepo, {
+              owner,
+              repo,
+              labels: 'system-failure',
+              state: 'open',
+              per_page: 50,
+            });
+
+            const alreadyExists = existing.some(i =>
+              i.title === title && i.body && i.body.includes(`#${run.run_number}`)
+            );
+
+            if (alreadyExists) {
+              console.log(`Issue already exists for run #${run.run_number}, skipping.`);
+              return;
+            }
+
+            const created = await github.rest.issues.create({
+              owner,
+              repo,
+              title,
+              body,
+              labels: ['system-failure', 'automated'],
+            });
+
+            console.log(`Created issue #${created.data.number}: ${title}`);

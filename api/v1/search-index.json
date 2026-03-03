@@ -1,0 +1,21 @@
+{
+  "index": [
+    {
+      "slug": "forge",
+      "name": "FORGE",
+      "description": "Full-stack solo founder toolkit. Idea validation, MVP planning, growth engineering, pricing strategy, and French micro-entrepreneur compliance.",
+      "tags": [
+        "saas",
+        "founder",
+        "growth",
+        "french-business"
+      ],
+      "category": "business",
+      "badge": "official",
+      "security_score": "",
+      "stars": 0,
+      "github_url": "https://github.com/nathanielalex/forge",
+      "discovered_via": ""
+    }
+  ]
+}
